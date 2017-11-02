@@ -88,7 +88,7 @@ func (j *journal_c) Check (service *service_t) ([]string, error) {
                             err = lErr
                         }
                     }
-                } else {
+                } else if service.LastTimestamp == 0 {
                     fmt.Printf("Unalbe to find any previous journal entries for %s\n", service.Term)
                     service.LastTimestamp = 1;  //look for any future entries for this service
                 }
