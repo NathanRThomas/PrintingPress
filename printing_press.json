@@ -1,0 +1,6 @@
+{
+    "services": [
+        {"search_term": "labs.service", 
+        "output_file": "/var/log/labs_err.log"}
+    ]
+}
