@@ -19,14 +19,14 @@ import (
 	"flag"
 )
 
-const APP_VER = "0.1"
+const APP_VER = "0.3"
 
   //-------------------------------------------------------------------------------------------------------------------------//
  //----- STRUCTS -----------------------------------------------------------------------------------------------------------//
 //-------------------------------------------------------------------------------------------------------------------------//
 
 type app_t struct {
-
+    Verbose     bool
     Services    []service_t     `json:"services"`
 }
 
@@ -74,32 +74,6 @@ func parseConfig (fileName string, config *app_t) error {
     }
 }
 
-/*! \brief main check function
-    This will look for newly generated journalctl logs and parse them and if needed, write them to the log file
-*/
-func checkServices (config *app_t) error {
-    jService := journal_c {}   //journal class
-
-    for idx, s := range(config.Services) {
-        lines, err := jService.Check(&config.Services[idx])  //pass a pointer so this can update itself
-        if err == nil {
-            if len(lines) > 0 { //new lines for the log, these come in in reverse order
-                f := outputHandle(&s)
-                defer f.Close()
-
-                i := len(lines) -1  //start at the end
-                for i >= 0 {
-                    f.WriteString(lines[i] + "\n")
-                    i--
-                }
-            }
-        } else {
-            return fmt.Errorf("error for service %s :: %s\n", s.Term, err.Error())
-        }
-    }
-
-    return nil
-}
 
   //-------------------------------------------------------------------------------------------------------------------------//
  //----- MAIN --------------------------------------------------------------------------------------------------------------//
@@ -110,8 +84,9 @@ func main() {
 	
 	//handle any passed in flags
 	configFile := flag.String("c", "printing_press.json", "Config file")
+    verboseFlag := flag.Bool("V", false, "Verbose logging for what this service is doing")
 	versionFlag := flag.Bool("v", false, "Returns the version")
-	
+    
 	flag.Parse()
 	
 	if *versionFlag {
@@ -120,7 +95,8 @@ func main() {
 	}
 
     app := app_t {} //init our application level object
-
+    app.Verbose = *verboseFlag  //copy over the verbose flag
+    
     //parse the config file
     err := parseConfig(*configFile, &app)
     if err != nil {
@@ -128,11 +104,14 @@ func main() {
         os.Exit(1)  //bail
     }
 
-    err = checkServices(&app)   //do the first check right away, this just gets a baseline of the last message for all our services
-    if err != nil {
-        log.Println(err)
-        os.Exit(2)  //bail
+    timeChan := make(chan time.Time, len(app.Services))    //this will be our exit flag
+
+    jService := journal_c {Verbose: app.Verbose}   //journal class
+    //loop through our services and create a follower for each
+    for _, service := range(app.Services) {
+        go jService.Follow(&service, timeChan)    //pass the channel, this is how we'll exit these loops
     }
+
     
 	wg := new(sync.WaitGroup)
 	wg.Add(1)
@@ -146,14 +125,11 @@ func main() {
 			wg.Done()
 	}(wg)
 	
-	//this is our polling interval
-	ticker := time.NewTicker(time.Minute * time.Duration(1))	//check every minute, that's our min
-	go func() {
-		for range ticker.C {
-			err := checkServices(&app)	//does the check of all our services
-            if err != nil { log.Println(err) }
-		}
-	} ()
-	
-	wg.Wait()	//wait for the slave and possible master to finish
+	wg.Wait()	//wait till we hear an interrupt
+    //if we're here it's cause we need to exit
+    for _, _ = range(app.Services) {
+        timeChan <- time.Now()
+    }
+
+    time.Sleep(time.Second * 1) //give it just a second to exit
 }

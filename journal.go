@@ -5,9 +5,11 @@
 package main
 
 import (
-    "fmt"
+//    "fmt"
+    "log"
     "regexp"
-    "strings"
+    "time"
+    "os"
 
     "github.com/coreos/go-systemd/sdjournal"
     )
@@ -19,11 +21,10 @@ import (
 type service_t struct {
     Term            string  `json:"search_term"`
     Output          string  `json:"output_file"`
-    LastTimestamp   uint64  `json:"-"`
 }
 
 type journal_c struct {
-    
+    Verbose         bool
 }
 
   //-------------------------------------------------------------------------------------------------------------------------//
@@ -42,65 +43,24 @@ func (j *journal_c) validateRegex (in string) {
  //----- PUBLIC FUNCTIONS --------------------------------------------------------------------------------------------------//
 //-------------------------------------------------------------------------------------------------------------------------//
 
-/*! \brief Main entry point.  This will read our config files and make sure we can start running
- */
-func (j *journal_c) Check (service *service_t) ([]string, error) {
-    lines := make([]string, 0)  //if we find any new lines here
+func (j *journal_c) Follow (service *service_t, c <- chan time.Time) {
+    m := make([]sdjournal.Match, 0)
+    m = append(m, sdjournal.Match{Field: sdjournal.SD_JOURNAL_FIELD_SYSTEMD_UNIT, Value: service.Term})
 
-    var tm uint64
-    journal, err := sdjournal.NewJournal()  //createa  new journal
+    journal, err := sdjournal.NewJournalReader(sdjournal.JournalReaderConfig {Since: time.Duration(time.Millisecond), Matches: m})
+
     if err == nil {
-        if len(service.Term) > 0 {  //we're looking for a specific service
-            m := sdjournal.Match{Field: sdjournal.SD_JOURNAL_FIELD_SYSTEMD_UNIT, Value: service.Term}
-            err = journal.AddMatch(m.String())    //add our term, if it exists
-        }
-        
-        if err == nil { //still good
-            //go to the end of the journal
-            err = journal.SeekTail()
-
-            if err == nil {
-                tm, err = journal.Next()
-                if tm != 0 {    //else we don't have an entry
-                    if err == nil {
-                        //get this entry
-                        entry, lErr := journal.GetEntry()
-                        if lErr == nil {
-                            //fmt.Printf("%+v\n", entry)
-
-                            if service.LastTimestamp == 0 {
-                                service.LastTimestamp = entry.RealtimeTimestamp //copy this over for next time
-                            } else if service.LastTimestamp < entry.RealtimeTimestamp {    //see if this is newer
-                                mostRecentTimestamp := entry.RealtimeTimestamp  //record this for later
-                                
-                                for err == nil && tm != 0 && service.LastTimestamp < entry.RealtimeTimestamp {
-                                    lines = append(lines, strings.TrimSpace(entry.Fields["MESSAGE"]))
-
-                                    tm, _ = journal.Previous()  //now go back
-                                    if tm != 0 {
-                                        entry, err = journal.GetEntry() //get this one
-                                    }
-                                }
-
-                                service.LastTimestamp = mostRecentTimestamp //save this for next time
-                            }
-                        } else {
-                            err = lErr
-                        }
-                    }
-                } else if service.LastTimestamp == 0 {
-                    fmt.Printf("Unalbe to find any previous journal entries for %s\n", service.Term)
-                    service.LastTimestamp = 1;  //look for any future entries for this service
-                }
-            }
-        }
-
+        f, err := os.OpenFile(service.Output, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0664)
         if err == nil {
-            err = journal.Close()   //we're done with it
+            defer f.Close()
+
+            //we're good, now setup a follow
+            journal.Follow (c, f)
+            log.Printf("Service %s exiting\n", service.Term)
         } else {
-            journal.Close()   //we're done with it
+            log.Printf("Error opening file %s for writing : %s\n", service.Output, err.Error())
         }
+    } else {
+        log.Printf("Error creating new Journal Reader : %s\n", err.Error())    //this is bad
     }
-    
-    return lines, err  //we're done
 }
