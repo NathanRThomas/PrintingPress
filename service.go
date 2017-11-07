@@ -108,10 +108,9 @@ func main() {
 
     jService := journal_c {Verbose: app.Verbose}   //journal class
     //loop through our services and create a follower for each
-    for _, service := range(app.Services) {
-        go jService.Follow(&service, timeChan)    //pass the channel, this is how we'll exit these loops
+    for idx, _ := range(app.Services) {
+        go jService.Follow(app.Services[idx], timeChan)    //pass the channel, this is how we'll exit these loops
     }
-
     
 	wg := new(sync.WaitGroup)
 	wg.Add(1)

@@ -43,7 +43,7 @@ func (j *journal_c) validateRegex (in string) {
  //----- PUBLIC FUNCTIONS --------------------------------------------------------------------------------------------------//
 //-------------------------------------------------------------------------------------------------------------------------//
 
-func (j *journal_c) Follow (service *service_t, c <- chan time.Time) {
+func (j *journal_c) Follow (service service_t, c <- chan time.Time) {
     m := make([]sdjournal.Match, 0)
     m = append(m, sdjournal.Match{Field: sdjournal.SD_JOURNAL_FIELD_SYSTEMD_UNIT, Value: service.Term})
 
@@ -55,6 +55,7 @@ func (j *journal_c) Follow (service *service_t, c <- chan time.Time) {
             defer f.Close()
 
             //we're good, now setup a follow
+            log.Printf("Starting logging of %s\n", service.Term)
             journal.Follow (c, f)
             log.Printf("Service %s exiting\n", service.Term)
         } else {
